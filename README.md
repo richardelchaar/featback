@@ -4,7 +4,7 @@ Featback is a tool designed to help product management teams efficiently gather 
 
 For example, what do people think about the iPhone 16? What features are most commonly reviewed? What about the design do they not like—is it the colors or build quality? Regarding the camera, is it a UI functionality issue or a photo quality issue? Are users disappointed or frustrated?
 
-Featback runs a pipeline every week to extract all Reddit posts in the iPhone 16 subreddit (Though it can be easily modified for any other product). It leverages the OpenAI API with prompt engineering techniques to identify whether each post is a review, a question, or neither. For reviews and questions, it breaks down each feature (e.g., Refresh Rate), categorizes it (e.g., Display), and provides the user emotion (e.g., Frustrated) along with the reason behind it (e.g., Functionality issue).
+Featback runs a pipeline every week to extract all Reddit posts in the iPhone subreddit mentioning the iPhone 16 (Though it can be easily modified for any other product). It leverages the OpenAI API with prompt engineering techniques to identify whether each post is a review, a question, or neither. For reviews and questions, it breaks down each feature (e.g., Refresh Rate), categorizes it (e.g., Display), and provides the user emotion (e.g., Frustrated) along with the reason behind it (e.g., Functionality issue).
 
 
 ## Pipeline Diagram
