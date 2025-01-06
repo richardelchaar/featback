@@ -1,6 +1,4 @@
-# Social Listening Tool: Feature-Based Reddit Analysis
-
-## Welcome to Featback!!
+# Welcome to Featback! Your Feature-Based Reddit Product Analysis Tool
 
 Featback is a tool designed to help product management teams efficiently gather detailed analysis and granular feedback about specific features of their products. Unlike regular sentiment analysis, which often provides only a general sentiment score, Featback dives deeper to understand the drivers behind user emotions. Some features may be praised while others draw criticism, and Featback helps uncover these nuances.
 
