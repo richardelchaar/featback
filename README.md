@@ -15,7 +15,7 @@ Featback runs a pipeline every week to extract all Reddit posts in the iPhone su
 
 - **AWS Services:**
     - S3: Stores both raw Reddit JSON data and processed feedback as Parquet files for scalable and efficient data management.
-    - Redshift: Stores processed feedback for efficient querying and analysis.
+    - Redshift Data Warehouse: Stores processed feedback for efficient querying and analysis.
     - QuickSight: Enables filtering and visualizing sentiment and insights for each product feature through interactive dashboards.
 - **OpenAI API:**
     - gpt-4o-mini model
@@ -54,9 +54,11 @@ project_directory/
 ### Prerequisites
 1. **AWS Credentials:** Ensure you have access keys with S3 and Redshift permissions.
 2. **Redshift Access:** Set up an Amazon Redshift database and provide the endpoint, username, password, and IAM role ARN.
-3. **Reddit API Credentials:** Set up a Reddit app to fetch posts using PRAW.
-4. **OpenAI API Key:** Required for GPT-4o-mini integration.
-5. **Docker Installed:** Ensure Docker and Docker Compose are installed.
+3. **Security Group Config**: Ensure your Redshift security group allows incoming connections from your local IP and AWS Quicksight.
+4. **Reddit API Credentials:** Set up a Reddit app to fetch posts using PRAW.
+5. **OpenAI API Key:** Required for GPT-4o-mini integration.
+6. **Docker Installed:** Ensure Docker and Docker Compose are installed.
+7. **Quicksight Visualization:** Set up a Quicksight visualization dashboard, connecting the Redshift Warehouse as your data source.
 
 ### Environment Variables
 Create a `.env` file with the following variables:
