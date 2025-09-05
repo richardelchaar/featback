@@ -1,6 +1,8 @@
 import praw
+
 from featback.config import settings
 from featback.io.s3 import put_json, safe_key
+
 
 def fetch_reddit_posts(subreddit_name: str, product: str, total_limit: int = 300):
     reddit = praw.Reddit(
@@ -9,7 +11,9 @@ def fetch_reddit_posts(subreddit_name: str, product: str, total_limit: int = 300
         user_agent=settings.reddit_client_agent,
     )
     
-    submissions = reddit.subreddit(subreddit_name).search(query=product, time_filter="week", limit=total_limit)
+    submissions = reddit.subreddit(subreddit_name).search(
+        query=product, time_filter="week", limit=total_limit
+    )
     
     fetched = []
     for s in submissions:

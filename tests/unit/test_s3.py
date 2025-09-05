@@ -1,7 +1,9 @@
+import boto3
 import pandas as pd
 from moto import mock_aws
-import boto3
+
 from featback.io import s3 as s3io
+
 
 @mock_aws
 def test_put_and_list_json(monkeypatch):

@@ -1,5 +1,7 @@
 import json
+
 from openai import OpenAI
+
 from featback.config import settings
 
 try:
@@ -40,8 +42,10 @@ If review: type="review", category, feature, emotion, reason.
 If question: type="question", category, feature, reason (no emotion).
 If irrelevant: emit zero items.
 Categories: Battery, Camera, Display, Performance, Connectivity, Design, Software.
-Emotions: Excitement, Satisfaction, Joy, Relief, Trust, Disappointment, Frustration, Anger, Confusion, Regret, Curiosity, Surprise, Skepticism, Indifference, Anticipation.
-Reasons: Below Expectations, Above Expectations, Functionality, Reliability, Ease of use, Accessibility, Design, Build quality, Overheating, Compatibility.
+Emotions: Excitement, Satisfaction, Joy, Relief, Trust, Disappointment, Frustration, Anger, 
+Confusion, Regret, Curiosity, Surprise, Skepticism, Indifference, Anticipation.
+Reasons: Below Expectations, Above Expectations, Functionality, Reliability, Ease of use, 
+Accessibility, Design, Build quality, Overheating, Compatibility.
 Respond ONLY with JSON per the schema.
 """
 
@@ -53,7 +57,10 @@ def extract_features(title: str, text: str, product: str) -> list[dict]:
             model="gpt-4o-mini",
             response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
             messages=[
-                {"role": "system","content":"Extract structured insights exactly as per the schema."},
+                {
+                    "role": "system",
+                    "content": "Extract structured insights exactly as per the schema."
+                },
                 {"role":"user","content":PROMPT_TMPL.format(title=title,text=text,product=product)},
             ],
             max_tokens=900

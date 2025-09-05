@@ -1,5 +1,7 @@
 import pandas as pd
+
 from featback.llm.openai_extractor import extract_features
+
 
 def analysis_results(posts_df: pd.DataFrame, product: str):
   reviews, questions = [], []

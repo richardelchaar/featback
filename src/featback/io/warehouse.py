@@ -1,11 +1,14 @@
-from datetime import datetime
 import io
+from datetime import datetime
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import redshift_connector
+
 from featback.config import settings
-from featback.io.s3 import put_bytes, safe_key, BUCKET
+from featback.io.s3 import BUCKET, put_bytes, safe_key
+
 
 def write_parquet_to_s3(df: pd.DataFrame, key: str) -> None:
     if df.empty: 

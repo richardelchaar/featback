@@ -1,6 +1,5 @@
-import pandera as pa
-from pandera import Column, DataFrameSchema
 import pandas as pd
+from pandera import Column, DataFrameSchema
 
 raw_post_schema = DataFrameSchema({
   "id": Column(str),

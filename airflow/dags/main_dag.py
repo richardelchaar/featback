@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
+
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from featback.reddit.ingestion import fetch_reddit_posts
-from featback.pipeline.product_feedback import run_pipeline
+
 from featback.io.s3 import slugify  # reuse helper
+from featback.pipeline.product_feedback import run_pipeline
+from featback.reddit.ingestion import fetch_reddit_posts
 
 SUBREDDIT = "iphone"
 PRODUCT = slugify("Iphone 16")

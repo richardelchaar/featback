@@ -1,8 +1,10 @@
 import pandas as pd
-from featback.io.s3 import load_json_df, get_text, put_text, safe_key
-from featback.quality.expectations import validate_raw
-from featback.pipeline.data_processing import analysis_results
+
+from featback.io.s3 import get_text, load_json_df, put_text, safe_key
 from featback.io.warehouse import load_to_warehouse
+from featback.pipeline.data_processing import analysis_results
+from featback.quality.expectations import validate_raw
+
 
 def _last_ts_key(subreddit: str, product: str) -> str:
     return safe_key("last_timestamp", subreddit, product, "last_processed.txt")
@@ -11,7 +13,7 @@ def _get_last_ts(subreddit: str, product: str) -> float:
     v = get_text(_last_ts_key(subreddit, product))
     try: 
         return float(v) if v is not None else 0.0
-    except: 
+    except (ValueError, TypeError): 
         return 0.0
 
 def _set_last_ts(subreddit: str, product: str, ts: float) -> None:

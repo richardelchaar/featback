@@ -1,8 +1,10 @@
+import boto3
 import pandas as pd
 from moto import mock_aws
-import boto3
-from featback.pipeline.product_feedback import run_pipeline
+
 from featback.io import s3 as s3io
+from featback.pipeline.product_feedback import run_pipeline
+
 
 @mock_aws
 def test_pipeline_saves_last_ts(monkeypatch):
@@ -12,11 +14,17 @@ def test_pipeline_saves_last_ts(monkeypatch):
     monkeypatch.setattr(s3io, "BUCKET", "featback1")
     
     key = s3io.safe_key("data","reddit_submissions","iphone","Iphone_16","p1.json")
-    s3io.put_json(key, {"id":"p1","title":"battery","selftext":"great battery","created_utc":1000.0,"score":1,"url":"u","num_comments":0,"subreddit":"iphone"})
+    s3io.put_json(key, {
+        "id":"p1","title":"battery","selftext":"great battery",
+        "created_utc":1000.0,"score":1,"url":"u","num_comments":0,"subreddit":"iphone"
+    })
     
     from featback.pipeline import data_processing as dp
     def fake_extract(posts_df, product):
-        return pd.DataFrame([{"id":"p1","text":"t","category":"Battery","feature":"Battery duration","emotion":"Satisfaction","reason":"Functionality","created_utc":1000.0}]), pd.DataFrame()
+        return pd.DataFrame([{
+            "id":"p1","text":"t","category":"Battery","feature":"Battery duration",
+            "emotion":"Satisfaction","reason":"Functionality","created_utc":1000.0
+        }]), pd.DataFrame()
     monkeypatch.setattr(dp, "analysis_results", fake_extract)
     
     run_pipeline("iphone","Iphone_16")

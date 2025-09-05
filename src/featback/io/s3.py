@@ -1,10 +1,13 @@
 import json
-import pandas as pd
+import re
+from collections.abc import Iterable
+
 import boto3
 import botocore
-from typing import Iterable
+import pandas as pd
+
 from featback.config import settings
-import re
+
 
 def slugify(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s).strip())

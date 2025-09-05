@@ -1,24 +1,24 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List, Optional
+
 from featback.llm.openai_extractor import extract_features
 
 app = FastAPI(title="Featback API")
 
 class ExtractRequest(BaseModel):
     text: str
-    product: Optional[str] = None
-    title: Optional[str] = ""
+    product: str | None = None
+    title: str | None = ""
 
 class ExtractItem(BaseModel):
     type: str
     category: str
     feature: str
-    emotion: Optional[str] = None
+    emotion: str | None = None
     reason: str
 
 class ExtractResponse(BaseModel):
-    items: List[ExtractItem]
+    items: list[ExtractItem]
     source: str
 
 @app.get("/health")
