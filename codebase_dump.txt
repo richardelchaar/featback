@@ -1,0 +1,599 @@
+===== ./tests/unit/__init__.py =====
+"""Unit tests."""
+
+
+===== ./tests/unit/test_openai_extractor.py =====
+from featback.llm.openai_extractor import extract_features
+
+def test_llm_fail_soft(monkeypatch):
+    from featback.llm import openai_extractor as oe
+    def blow(*a, **k): 
+        raise RuntimeError("boom")
+    monkeypatch.setattr(oe.client.chat.completions, "create", blow, raising=True)
+    assert extract_features("t","text","prod") == []
+
+
+===== ./tests/unit/test_s3.py =====
+import pandas as pd
+from moto import mock_aws
+import boto3
+from featback.io import s3 as s3io
+
+@mock_aws
+def test_put_and_list_json(monkeypatch):
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="featback1")
+    monkeypatch.setattr(s3io, "s3", s3)
+    monkeypatch.setattr(s3io, "BUCKET", "featback1")
+    
+    key = s3io.safe_key("data","reddit_submissions","iphone","Iphone_16","abc.json")
+    s3io.put_json(key, {"x":1})
+    assert key in s3io.list_keys("data/reddit_submissions/iphone/Iphone_16")
+    
+    df = s3io.load_json_df("data/reddit_submissions/iphone/Iphone_16")
+    assert isinstance(df, pd.DataFrame) and len(df)==1 and df.iloc[0]["x"]==1
+
+
+===== ./tests/unit/test_quality.py =====
+import pandas as pd
+import pytest
+from featback.quality.expectations import validate_raw
+
+def test_validate_raw_ok():
+    df = pd.DataFrame([{"id":"1","title":"t","selftext":"x","created_utc":1.0,"score":1,"url":"u","num_comments":0,"subreddit":"iphone"}])
+    assert len(validate_raw(df))==1
+
+def test_validate_raw_bad():
+    df = pd.DataFrame([{"id":"1","created_utc":"bad"}])
+    with pytest.raises(Exception): 
+        validate_raw(df)
+
+
+===== ./tests/integration/conftest.py =====
+"""Configuration for integration tests."""
+import pytest
+
+
+===== ./tests/integration/test_pipeline_minio.py =====
+import pandas as pd
+from moto import mock_aws
+import boto3
+from featback.pipeline.product_feedback import run_pipeline
+from featback.io import s3 as s3io
+
+@mock_aws
+def test_pipeline_saves_last_ts(monkeypatch):
+    s3 = boto3.client("s3", region_name="us-east-1")
+    s3.create_bucket(Bucket="featback1")
+    monkeypatch.setattr(s3io, "s3", s3)
+    monkeypatch.setattr(s3io, "BUCKET", "featback1")
+    
+    key = s3io.safe_key("data","reddit_submissions","iphone","Iphone_16","p1.json")
+    s3io.put_json(key, {"id":"p1","title":"battery","selftext":"great battery","created_utc":1000.0,"score":1,"url":"u","num_comments":0,"subreddit":"iphone"})
+    
+    from featback.pipeline import data_processing as dp
+    def fake_extract(posts_df, product):
+        return pd.DataFrame([{"id":"p1","text":"t","category":"Battery","feature":"Battery duration","emotion":"Satisfaction","reason":"Functionality","created_utc":1000.0}]), pd.DataFrame()
+    monkeypatch.setattr(dp, "analysis_results", fake_extract)
+    
+    run_pipeline("iphone","Iphone_16")
+    
+    last_key = s3io.safe_key("last_timestamp","iphone","Iphone_16","last_processed.txt")
+    v = s3.get_object(Bucket="featback1", Key=last_key)["Body"].read().decode("utf-8")
+    assert float(v) == 1000.0
+
+
+===== ./tests/integration/__init__.py =====
+"""Integration tests."""
+
+
+===== ./tests/__init__.py =====
+"""Tests for featback package."""
+
+
+===== ./airflow/dags/main_dag.py =====
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from featback.reddit.ingestion import fetch_reddit_posts
+from featback.pipeline.product_feedback import run_pipeline
+from featback.io.s3 import slugify  # reuse helper
+
+SUBREDDIT = "iphone"
+PRODUCT = slugify("Iphone 16")
+
+default_args = {
+  "owner": "airflow",
+  "depends_on_past": False,
+  "email_on_failure": True,
+  "email_on_retry": False,
+  "retries": 1,
+  "retry_delay": timedelta(minutes=5),
+}
+
+with DAG(
+  dag_id="featback_weekly",
+  default_args=default_args,
+  start_date=datetime(2024,12,28),
+  schedule_interval="@weekly",
+  catchup=False, 
+  max_active_runs=1,
+) as dag:
+  
+  ingest = PythonOperator(
+    task_id="fetch_reddit_posts",
+    python_callable=fetch_reddit_posts,
+    op_args=[SUBREDDIT, PRODUCT],
+  )
+  
+  process = PythonOperator(
+    task_id="run_product_feedback",
+    python_callable=run_pipeline,
+    op_args=[SUBREDDIT, PRODUCT],
+  )
+  
+  ingest >> process
+
+
+===== ./src/featback/pipeline/__init__.py =====
+"""Data processing pipeline utilities."""
+
+
+===== ./src/featback/pipeline/product_feedback.py =====
+import pandas as pd
+from featback.io.s3 import load_json_df, get_text, put_text, safe_key
+from featback.quality.expectations import validate_raw
+from featback.pipeline.data_processing import analysis_results
+from featback.io.warehouse import load_to_warehouse
+
+def _last_ts_key(subreddit: str, product: str) -> str:
+    return safe_key("last_timestamp", subreddit, product, "last_processed.txt")
+
+def _get_last_ts(subreddit: str, product: str) -> float:
+    v = get_text(_last_ts_key(subreddit, product))
+    try: 
+        return float(v) if v is not None else 0.0
+    except: 
+        return 0.0
+
+def _set_last_ts(subreddit: str, product: str, ts: float) -> None:
+    put_text(_last_ts_key(subreddit, product), str(float(ts)))
+
+def run_pipeline(subreddit: str, product: str):
+    prefix = safe_key("data","reddit_submissions",subreddit,product)
+    raw = load_json_df(prefix)
+    if raw.empty: 
+        return
+    
+    raw["created_utc"] = raw["created_utc"].astype(float)
+    raw = validate_raw(raw).drop_duplicates(subset=["id"])
+    
+    last_ts = _get_last_ts(subreddit, product)
+    filtered = raw[raw["created_utc"] > last_ts]
+    if filtered.empty: 
+        return
+    
+    max_ts = float(filtered["created_utc"].max())
+    reviews_df, questions_df = analysis_results(filtered, product)
+    
+    for df in (reviews_df, questions_df):
+        if not df.empty:
+            df["created_utc"] = pd.to_datetime(df["created_utc"], unit="s")
+    
+    load_to_warehouse(reviews_df, "reviews", subreddit, product)
+    load_to_warehouse(questions_df, "questions", subreddit, product)
+    
+    _set_last_ts(subreddit, product, max_ts)
+
+
+===== ./src/featback/pipeline/data_processing.py =====
+import pandas as pd
+from featback.llm.openai_extractor import extract_features
+
+def analysis_results(posts_df: pd.DataFrame, product: str):
+  reviews, questions = [], []
+  for _, post in posts_df.iterrows():
+    items = extract_features(post.get("title") or "", post.get("selftext") or "", product)
+    if not items: 
+      continue
+    for it in items:
+      base = {
+        "id": post["id"], 
+        "text": post.get("selftext",""),
+        "category": it.get("category"), 
+        "feature": it.get("feature"),
+        "created_utc": post["created_utc"],
+      }
+      if it["type"] == "review":
+        reviews.append({**base, "emotion": it.get("emotion"), "reason": it.get("reason")})
+      else:
+        questions.append({**base, "reason": it.get("reason")})
+  return pd.DataFrame(reviews), pd.DataFrame(questions)
+
+
+===== ./src/featback/logging.py =====
+import logging
+import structlog
+
+def setup_logging():
+    logging.basicConfig(level=logging.INFO)
+    structlog.configure(
+        processors=[structlog.processors.JSONRenderer()],
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    )
+
+
+===== ./src/featback/llm/openai_extractor.py =====
+import json
+from openai import OpenAI
+from featback.config import settings
+
+try:
+    client = OpenAI(api_key=settings.openai_api_key)
+except Exception:
+    client = None
+
+JSON_SCHEMA = {
+  "name": "extractions",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["review", "question"]},
+            "category": {"type": "string"},
+            "feature": {"type": "string"},
+            "emotion": {"type": "string"},
+            "reason": {"type": "string"}
+          },
+          "required": ["type","category","feature","reason"],
+          "additionalProperties": False
+        }
+      }
+    },
+    "required": ["items"],
+    "additionalProperties": False
+  }
+}
+
+PROMPT_TMPL = """You are extracting structured insights from a Reddit post about: {product}
+Title: "{title}"
+Post: "{text}"
+If review: type="review", category, feature, emotion, reason.
+If question: type="question", category, feature, reason (no emotion).
+If irrelevant: emit zero items.
+Categories: Battery, Camera, Display, Performance, Connectivity, Design, Software.
+Emotions: Excitement, Satisfaction, Joy, Relief, Trust, Disappointment, Frustration, Anger, Confusion, Regret, Curiosity, Surprise, Skepticism, Indifference, Anticipation.
+Reasons: Below Expectations, Above Expectations, Functionality, Reliability, Ease of use, Accessibility, Design, Build quality, Overheating, Compatibility.
+Respond ONLY with JSON per the schema.
+"""
+
+def extract_features(title: str, text: str, product: str) -> list[dict]:
+    if client is None:
+        return []
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
+            messages=[
+                {"role": "system","content":"Extract structured insights exactly as per the schema."},
+                {"role":"user","content":PROMPT_TMPL.format(title=title,text=text,product=product)},
+            ],
+            max_tokens=900
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return data.get("items", [])
+    except Exception:
+        return []
+
+
+===== ./src/featback/llm/__init__.py =====
+"""LLM utilities for feature extraction."""
+
+
+===== ./src/featback/config.py =====
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_bucket: str = "featback1"
+    aws_default_region: str | None = "us-east-1"
+    db_kind: str = "redshift"
+    redshift_endpoint: str | None = None
+    aws_username: str | None = None
+    aws_password: str | None = None
+    iam_role: str | None = None
+    postgres_host: str | None = None
+    postgres_db: str | None = None
+    postgres_user: str | None = None
+    postgres_password: str | None = None
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_client_agent: str = "featback/1.0"
+    openai_api_key: str | None = None
+    mlflow_tracking_uri: str | None = None
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+settings = Settings()
+
+
+===== ./src/featback/quality/__init__.py =====
+"""Data quality and validation utilities."""
+
+
+===== ./src/featback/quality/expectations.py =====
+import pandera as pa
+from pandera import Column, DataFrameSchema
+import pandas as pd
+
+raw_post_schema = DataFrameSchema({
+  "id": Column(str),
+  "title": Column(str, nullable=True),
+  "selftext": Column(str, nullable=True),
+  "created_utc": Column(float),
+  "score": Column(int, nullable=True),
+  "url": Column(str, nullable=True),
+  "num_comments": Column(int, nullable=True),
+  "subreddit": Column(str),
+})
+
+def validate_raw(df: pd.DataFrame) -> pd.DataFrame:
+  if df.empty: 
+    return df
+  return raw_post_schema.validate(df, lazy=True)
+
+
+===== ./src/featback/io/warehouse.py =====
+from datetime import datetime
+import io
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import redshift_connector
+from featback.config import settings
+from featback.io.s3 import put_bytes, safe_key, BUCKET
+
+def write_parquet_to_s3(df: pd.DataFrame, key: str) -> None:
+    if df.empty: 
+        return
+    buf = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(df), buf)
+    buf.seek(0)
+    put_bytes(key, buf.getvalue())
+
+def redshift_copy_parquet(table: str, s3_key: str):
+    conn = redshift_connector.connect(
+        host=settings.redshift_endpoint, 
+        database="dev", 
+        port=5439,
+        user=settings.aws_username, 
+        password=settings.aws_password,
+    )
+    cur = conn.cursor()
+    cur.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+            id VARCHAR, text VARCHAR, category VARCHAR, feature VARCHAR,
+            emotion VARCHAR, reason VARCHAR, created_utc TIMESTAMP
+        );
+    """)
+    conn.commit()
+    cur.execute(f"""
+        COPY {table}
+        FROM 's3://{BUCKET}/{s3_key}'
+        IAM_ROLE '{settings.iam_role}'
+        FORMAT AS PARQUET;
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def load_to_warehouse(df: pd.DataFrame, table: str, subreddit: str, product: str):
+    if df.empty: 
+        return
+    ds = datetime.utcnow().strftime("%Y-%m-%d")
+    key = safe_key("data", table, subreddit, product, f"{ds}.parquet")
+    write_parquet_to_s3(df, key)
+    if settings.db_kind == "redshift":
+        redshift_copy_parquet(table, key)
+
+
+===== ./src/featback/io/__init__.py =====
+"""IO utilities for S3 and warehouse operations."""
+
+
+===== ./src/featback/io/s3.py =====
+import json
+import pandas as pd
+import boto3
+import botocore
+from typing import Iterable
+from featback.config import settings
+import re
+
+def slugify(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s).strip())
+
+session = boto3.session.Session(
+    aws_access_key_id=settings.aws_access_key_id,
+    aws_secret_access_key=settings.aws_secret_access_key,
+    region_name=settings.aws_default_region,
+)
+
+s3 = session.client("s3", endpoint_url=settings.s3_endpoint_url or None)
+BUCKET = settings.s3_bucket
+
+def safe_key(*parts: Iterable[str]) -> str:
+    return "/".join(slugify(p) for p in parts)
+
+def put_json(key: str, obj: dict | list) -> None:
+    s3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps(obj).encode("utf-8"))
+
+def put_bytes(key: str, data: bytes) -> None:
+    s3.put_object(Bucket=BUCKET, Key=key, Body=data)
+
+def list_keys(prefix: str) -> list[str]:
+    keys, token = [], None
+    while True:
+        kwargs = {"Bucket": BUCKET, "Prefix": prefix}
+        if token: 
+            kwargs["ContinuationToken"] = token
+        resp = s3.list_objects_v2(**kwargs)
+        for obj in resp.get("Contents", []): 
+            keys.append(obj["Key"])
+        token = resp.get("NextContinuationToken")
+        if not token: 
+            break
+    return keys
+
+def get_json(key: str) -> dict:
+    obj = s3.get_object(Bucket=BUCKET, Key=key)
+    return json.loads(obj["Body"].read().decode("utf-8"))
+
+def load_json_df(prefix: str) -> pd.DataFrame:
+    files = [k for k in list_keys(prefix) if k.endswith(".json")]
+    rows = []
+    for k in files:
+        try: 
+            rows.append(get_json(k))
+        except Exception: 
+            continue
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+def put_text(key: str, text: str) -> None:
+    s3.put_object(Bucket=BUCKET, Key=key, Body=text.encode("utf-8"))
+
+def get_text(key: str) -> str | None:
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+        return obj["Body"].read().decode("utf-8")
+    except botocore.exceptions.ClientError:
+        return None
+
+
+===== ./src/featback/__init__.py =====
+"""Featback: Feature feedback analysis from Reddit posts."""
+
+__version__ = "2.0.0"
+
+
+===== ./src/featback/utils/__init__.py =====
+"""Utility functions for text and date processing."""
+
+
+===== ./src/featback/utils/text.py =====
+"""Text processing utilities."""
+
+import re
+
+def clean_text(text: str) -> str:
+    """Clean and normalize text content."""
+    if not text:
+        return ""
+    # Remove extra whitespace and normalize
+    return re.sub(r'\s+', ' ', text.strip())
+
+def extract_mentions(text: str) -> list[str]:
+    """Extract @mentions from text."""
+    return re.findall(r'@(\w+)', text)
+
+
+===== ./src/featback/utils/dates.py =====
+"""Date and time utilities."""
+
+from datetime import datetime, timezone
+
+def utc_now() -> datetime:
+    """Get current UTC timestamp."""
+    return datetime.now(timezone.utc)
+
+def unix_to_datetime(timestamp: float) -> datetime:
+    """Convert Unix timestamp to datetime."""
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+
+
+===== ./src/featback/reddit/ingestion.py =====
+import praw
+from featback.config import settings
+from featback.io.s3 import put_json, safe_key
+
+def fetch_reddit_posts(subreddit_name: str, product: str, total_limit: int = 300):
+    reddit = praw.Reddit(
+        client_id=settings.reddit_client_id,
+        client_secret=settings.reddit_client_secret,
+        user_agent=settings.reddit_client_agent,
+    )
+    
+    submissions = reddit.subreddit(subreddit_name).search(query=product, time_filter="week", limit=total_limit)
+    
+    fetched = []
+    for s in submissions:
+        if product.lower() in (s.title + s.selftext).lower():
+            fetched.append({
+                "id": s.id,
+                "title": s.title,
+                "created_utc": float(s.created_utc),
+                "selftext": s.selftext,
+                "score": int(s.score),
+                "url": s.url,
+                "num_comments": int(s.num_comments),
+                "subreddit": s.subreddit.display_name,
+            })
+            if len(fetched) >= total_limit: 
+                break
+    
+    for post in fetched:
+        key = safe_key("data","reddit_submissions",subreddit_name,product,f"{post['id']}.json")
+        put_json(key, post)
+
+
+===== ./src/featback/reddit/__init__.py =====
+"""Reddit data ingestion utilities."""
+
+
+===== ./src/featback/services/__init__.py =====
+"""Services for API endpoints."""
+
+
+===== ./src/featback/services/api/__init__.py =====
+"""API service implementation."""
+
+
+===== ./src/featback/services/api/app.py =====
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Optional
+from featback.llm.openai_extractor import extract_features
+
+app = FastAPI(title="Featback API")
+
+class ExtractRequest(BaseModel):
+    text: str
+    product: Optional[str] = None
+    title: Optional[str] = ""
+
+class ExtractItem(BaseModel):
+    type: str
+    category: str
+    feature: str
+    emotion: Optional[str] = None
+    reason: str
+
+class ExtractResponse(BaseModel):
+    items: List[ExtractItem]
+    source: str
+
+@app.get("/health")
+def health(): 
+    return {"ok": True}
+
+@app.post("/extract", response_model=ExtractResponse)
+def extract(req: ExtractRequest):
+    items = extract_features(req.title or "", req.text or "", req.product or "")
+    return {"items": items, "source": "llm"}
+
+

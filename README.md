@@ -1,122 +1,218 @@
-# Welcome to Featback! Your Feature-Based Reddit Product Analysis Tool
 
-Featback is a tool designed to help product management teams efficiently gather detailed analysis and granular feedback about specific features of their products. Unlike regular sentiment analysis, which often provides only a general sentiment score, Featback dives deeper to understand the drivers behind user emotions. Some features may be praised while others draw criticism, and Featback helps uncover these nuances.
+# Featback 🚀
 
-For example, what do people think about the iPhone 16? What features are most commonly reviewed? What about the design do they not like—is it the colors or build quality? Regarding the camera, is it a UI functionality issue or a photo quality issue? Are users disappointed or frustrated?
+**Feature-Based Reddit Product Analysis Tool**
 
-Featback runs a pipeline every week to extract all Reddit posts in the iPhone subreddit mentioning the iPhone 16 (Though it can be easily modified for any other product). It leverages the OpenAI API with prompt engineering techniques to identify whether each post is a review, a question, or neither. For reviews and questions, it breaks down each feature (e.g., Refresh Rate), categorizes it (e.g., Display), and provides the user emotion (e.g., Frustrated) along with the reason behind it (e.g., Functionality issue).
+Featback is a tool designed to help product management teams efficiently gather detailed analysis and granular feedback about specific features of their products. Unlike regular sentiment analysis, which often provides only a general sentiment score, Featback dives deeper to understand the *drivers* behind user emotions. Some features may be praised while others draw criticism, and Featback helps uncover these nuances.
 
+For example: *What do people think about the iPhone 16? What features are most commonly reviewed? What exactly about the design do they not like — colors or weight? If they love the camera, is it about the photo quality or a zoom feature?*
 
-## Pipeline Diagram
+Featback answers these questions by breaking down Reddit posts into **structured, feature-level insights**.
+
+---
+
+## 🔎 Example Breakdown
+
+**Reddit Post**
+
+> **Title:** “Mixed feelings about my new iPhone 16”
+>
+> **Text:**
+> “I just got the iPhone 16 and honestly I’m disappointed. The **battery barely lasts a day** and the **screen isn’t bright enough outside**. On the positive side, the **camera takes amazing photos** and the **design looks really sleek**. But I noticed some **lag when switching between apps**, which is frustrating. By the way, does anyone know if it **supports dual SIM properly in the US**?”
+
+---
+
+### Reviews Table (saved as `reviews`)
+
+| id | text                               | category    | feature           | emotion        | reason             | created\_utc |
+| -- | ---------------------------------- | ----------- | ----------------- | -------------- | ------------------ | ------------ |
+| …  | battery barely lasts a day         | Battery     | Battery duration  | Disappointment | Below Expectations | …            |
+| …  | screen isn’t bright enough outside | Display     | Brightness levels | Disappointment | Below Expectations | …            |
+| …  | camera takes amazing photos        | Camera      | Photo quality     | Excitement     | Above Expectations | …            |
+| …  | design looks really sleek          | Design      | General           | Satisfaction   | Design             | …            |
+| …  | lag when switching between apps    | Performance | Multitasking      | Frustration    | Reliability        | …            |
+
+---
+
+### Questions Table (saved as `questions`)
+
+| id | text                                  | category     | feature          | reason          | created\_utc |
+| -- | ------------------------------------- | ------------ | ---------------- | --------------- | ------------ |
+| …  | supports dual SIM properly in the US? | Connectivity | Dual SIM support | Feature inquiry | …            |
+
+---
+
+👉 A **single Reddit post** becomes **two structured datasets** (reviews + questions), stored separately in S3 and Redshift for querying and visualization.
+
+---
+
+## 🛠️ Pipeline Diagram
+
 ![Pipeline Diagram](./Architecture/featback.jpg)
 
+---
 
-## Key Technologies
+## 🧰 Key Technologies
 
-- **AWS Services:**
-    - S3: Stores both raw Reddit JSON data and processed feedback as Parquet files for scalable and efficient data management.
-    - Redshift Data Warehouse: Stores processed feedback for efficient querying and analysis.
-    - QuickSight: Enables filtering and visualizing sentiment and insights for each product feature through interactive dashboards.
-- **OpenAI API:**
-    - gpt-4o-mini model
-- **Docker:**
-    - Fully containerized deployment using Docker Compose
-- **Airflow:**
-    - Orchestrates the entire pipeline, managing the automated flow of data from ingestion to analysis, storage, and visualization.
-- **Some Key Python Libraries:**
-    - `pandas`: For data manipulation and analysis.
-    - `pyarrow`: To handle Parquet files for efficient data storage.
-    - `boto3`: To interact with AWS services, including S3.
-    - `redshift_connector`: For connecting to and querying Amazon Redshift.
-    - `praw`: For fetching and processing Reddit posts.
-    - `dotenv`: To manage sensitive credentials securely via .env files.
-    - `openai`: For using GPT-4o-mini to extract insights from Reddit posts.
+* **AWS Services**
 
-## Project Structure
+  * **S3** → stores raw Reddit JSON and processed feedback (Parquet).
+  * **Redshift** → warehouse for efficient querying.
+  * **QuickSight** → dashboards for feature-level sentiment insights.
+
+* **OpenAI API**
+
+  * `gpt-4o-mini` model with prompt engineering + JSON schema enforcement.
+
+* **Docker / Docker Compose**
+
+  * Local demo stack (MinIO + Postgres) or full cloud mode (AWS).
+
+* **Airflow (optional)**
+
+  * For batch orchestration of weekly runs.
+
+* **Python Libraries**
+
+  * `pandas`, `pyarrow`, `boto3`, `redshift_connector`, `praw`, `pandera`, `openai`.
+
+* **Terraform (Infrastructure as Code)**
+
+  * Defines S3 bucket, IAM role for Redshift COPY, and other infra components.
+
+* **CI/CD with GitHub Actions**
+
+  * Linting, unit tests, integration tests with mocked AWS/OpenAI.
+  * Terraform workflows run `init`, `validate`, and `plan`.
+  * Safe for public repos (no secrets required).
+
+---
+
+## 📂 Project Structure
+
+```text
+featback/
+├─ src/featback/
+│  ├─ config.py            # Centralized config
+│  ├─ reddit/ingestion.py  # Fetch Reddit posts
+│  ├─ pipeline/            # Processing & feedback pipeline
+│  ├─ llm/                 # OpenAI-based extractor
+│  ├─ io/                  # S3 & Redshift utilities
+│  ├─ quality/             # Data validation (Pandera)
+│  └─ services/api/        # FastAPI inference service (real-time)
+├─ airflow/dags/main_dag.py # Weekly orchestration (optional)
+├─ infra/terraform/         # IaC for S3/IAM/Redshift
+├─ tests/                   # Unit + integration tests
+├─ docker-compose.yml
+├─ Makefile
+└─ README.md
 ```
-project_directory/
-├── dags/                
-│   ├── main_dag.py              # Airflow DAGs for orchestrating the pipeline
-├── scripts/                     # Python scripts for ingestion, analysis, and utilities
-│   ├── configuration.py         # Centralized configuration management
-│   ├── reddit_ingestion.py      # Fetching and storing Reddit posts
-│   ├── s3_utils.py              # Utilities for S3 interaction
-│   ├── data_processing.py       # Preprocessing and data transformation
-│   ├── llm_utils.py             # Utilities for leveraging GPT-4o-mini
-│   ├── redshift_utils.py        # Utilities for interacting with Redshift
-│   ├── product_sentiment_analysis.py # Feature-based sentiment analysis
-├── docker-compose.yml           # Docker Compose setup
-├── Dockerfile                   # Dockerfile for containerized deployment
-├── README.md                    # Project documentation
-```
 
-## Setup and Deployment
+---
+
+## ⚙️ Setup and Deployment
+
 ### Prerequisites
-1. **AWS Credentials:** Ensure you have access keys with S3 and Redshift permissions.
-2. **Redshift Access:** Set up an Amazon Redshift database and provide the endpoint, username, password, and IAM role ARN.
-3. **Security Group Config**: Ensure your Redshift security group allows incoming connections from your local IP and AWS Quicksight.
-4. **Reddit API Credentials:** Set up a Reddit app to fetch posts using PRAW.
-5. **OpenAI API Key:** Required for GPT-4o-mini integration.
-6. **Docker Installed:** Ensure Docker and Docker Compose are installed.
-7. **Quicksight Visualization:** Set up a Quicksight visualization dashboard, connecting the Redshift Warehouse as your data source.
+
+1. **AWS Credentials** (optional, for real cloud run).
+2. **Redshift Access** (optional).
+3. **Reddit API Credentials** (to fetch posts).
+4. **OpenAI API Key** (for extraction).
+5. **Docker Installed** (for local demo).
+6. **QuickSight** (optional dashboards).
 
 ### Environment Variables
-Create a `.env` file with the following variables:
+
+Create a `.env` (see `.env.example`):
+
 ```env
-
-# Airflow Setup
-AIRFLOW_UID=501
-AIRFLOW_GID=20
-
-# AWS Credentials
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-
-# Redshift Configuration
-ENDPOINT=your_redshift_endpoint
-AWS_USERNAME=your_redshift_username
-AWS_PASSWORD=your_redshift_password
-IAM_ROLE=your_iam_role_arn
-
-# Reddit API Credentials
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
 REDDIT_CLIENT_ID=your_reddit_client_id
-REDDIT_CLIENT_SECRET=your_reddit_client_secret
-REDDIT_CLIENT_AGENT=your_reddit_user_agent
-
-# OpenAI API Key
-OPENAI_API_KEY=your_openai_api_key
+REDDIT_CLIENT_SECRET=your_reddit_secret
+REDDIT_CLIENT_AGENT=featback/1.0
+OPENAI_API_KEY=your_openai_key
 ```
 
-### Build and Run
-1. Build and start the Docker containers:
-   ```bash
-   docker-compose up --build
-   ```
-2. Access the Airflow UI to trigger the pipeline:
-    - Navigate to `http://localhost:8080`
-    - Use default credentials: `airflow` / `airflow`
+### Local Run (Demo Mode)
 
+```bash
+pip install -e .[dev]
+pytest
+uvicorn featback.services.api.app:app --reload
+```
 
-## Screenshots
+### Batch Run (Single Command)
+
+```bash
+python -m featback.pipeline.product_feedback iphone "Iphone 16"
+```
+
+### Terraform (IaC Validation)
+
+```bash
+cd infra/terraform
+terraform init
+terraform validate
+terraform plan -var="project=featback"
+```
+
+---
+
+## ✅ Testing
+
+* **Unit tests** (mocked S3/Reddit/LLM) ensure modules work in isolation.
+* **Integration tests** run against a local MinIO + Postgres stack.
+* **Pandera schemas** catch malformed data before processing.
+
+Run all tests:
+
+```bash
+pytest
+```
+
+---
+
+## 🔄 CI/CD
+
+* **Lint + Tests** → runs automatically on every PR with GitHub Actions.
+* **Terraform validate/plan** → ensures infra configs are correct.
+* **Badges** (add to top of repo once Actions are live):
+
+  * ![CI](https://img.shields.io/github/actions/workflow/status/<your_repo>/ci.yml?branch=main)
+  * ![Terraform](https://img.shields.io/github/actions/workflow/status/<your_repo>/terraform.yml?branch=main)
+
+---
+
+## 📸 Screenshots
+
 ### Docker Environment
+
 ![Pipeline Execution](ProjectScreenshots/docker.png)
 
 ### Airflow DAG run
+
 ![Dashboard](ProjectScreenshots/airflow.png)
 
 ### S3 Data Storage
+
 ![Dashboard](ProjectScreenshots/s3.png)
 
 ### Redshift Example Query
+
 ![Dashboard](ProjectScreenshots/redshift.png)
 
-### Quicksight Visualizations
+### QuickSight Visualizations
+
 #### Review Category and Feature Distribution
+
 ![Dashboard](ProjectScreenshots/visualization1.png)
-#### Sentiment Breakdown and Detailed Tabular View 
+
+#### Sentiment Breakdown and Detailed Tabular View
+
 ![Dashboard](ProjectScreenshots/visualization2.png)
+
 #### Sentiment Breakdown over Time
+
 ![Dashboard](ProjectScreenshots/visualization3.png)
-
-
 
